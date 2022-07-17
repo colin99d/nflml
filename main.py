@@ -1,10 +1,11 @@
 from typing import List, Dict, Any
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.model_selection import train_test_split
-from sklearn import linear_model
+from sklearn import linear_model, tree, svm
 import pandas as pd
 import numpy as np
 import typer
+from tqdm import tqdm
 
 
 offense_unused = [
@@ -97,60 +98,76 @@ class Data:
 
 
 class Analyze:
-    def __init__(self, analyze: Dict[str, Any], offense: pd.DataFrame):
+    models = ["k_nearest", "linear_regr", "decision_tree_regr", "vector_class_regr"]
+
+    def __init__(self, analyze: Dict[str, Any], offense: pd.DataFrame, runs: int = 100):
         self.analyze = analyze
+        selections = {"base": [f"net_avg_{x}" for x in self.analyze["offense"]]}
         self.offense = offense
-        self.results = pd.DataFrame(columns=["name", "r2", "% correct"])
-        self.k_nearest(self.offense)
-        self.linear_regression(self.offense)
+        self.results = pd.DataFrame(columns=["name"] + list(selections.keys()))
+        self.runs = runs
+
+        # Run models
+        for key, val in tqdm(selections.items(), position=0):
+            for model in tqdm(self.models, position=1):
+                getattr(self, model)(self.offense, val, key)
+
         self.results = self.results.set_index("name")
+        print(f"Average percent correct for {self.runs} runs.")
         print(self.results)
 
-    def test_model(self, model, df: pd.DataFrame, name: str):
-        columns = [f"net_avg_{x}" for x in self.analyze["offense"]]
-
-        # Get overall r2 for model
-        model.fit(df[columns], df["net_score"])
-        r2 = model.score(df[columns], df["net_score"])
-
+    def test_model(
+        self, model, df: pd.DataFrame, model_name: str, X: List[str], X_name: str
+    ):
         # See how model does at vegas
-        x_train, x_test, y_train, y_test = train_test_split(
-            df[columns], df["net_score"], test_size=0.2
-        )
-        model.fit(x_train, y_train)
-        x_test["preds"] = model.predict(x_test)
-        temp = df[["Vegas_Line", "net_score", "vegas_favorite"]]
-        combined = x_test.merge(temp, left_index=True, right_index=True)
-        combined["vegas"] = combined["Vegas_Line"] * np.where(
-            combined["vegas_favorite"] == "HOME", -1, 1
-        )
-        combined["bet"] = np.where(
-            combined["vegas_favorite"] == "HOME",
-            np.where(combined["preds"] > combined["vegas"], "HOME", "AWAY"),
-            np.where(combined["vegas"] > combined["preds"], "HOME", "AWAY"),
-        )
-        combined["success"] = np.where(
-            combined["bet"] == "HOME",
-            combined["net_score"] > combined["vegas"],
-            combined["vegas"] > combined["net_score"],
-        )
-        score = combined["success"].value_counts(normalize=True).at[True]
-        df = pd.DataFrame([[name, r2, score]], columns=["name", "r2", "% correct"])
+        scores = []
+        for _ in range(self.runs):
+            x_train, x_test, y_train, _ = train_test_split(
+                df[X], df["net_score"], test_size=0.2
+            )
+            model.fit(x_train, y_train)
+            x_test["preds"] = model.predict(x_test)
+            temp = df[["Vegas_Line", "net_score", "vegas_favorite"]]
+            combined = x_test.merge(temp, left_index=True, right_index=True)
+            combined["vegas"] = combined["Vegas_Line"] * np.where(
+                combined["vegas_favorite"] == "HOME", -1, 1
+            )
+            combined["bet"] = np.where(
+                combined["vegas_favorite"] == "HOME",
+                np.where(combined["preds"] > combined["vegas"], "HOME", "AWAY"),
+                np.where(combined["vegas"] > combined["preds"], "HOME", "AWAY"),
+            )
+            combined["success"] = np.where(
+                combined["bet"] == "HOME",
+                combined["net_score"] > combined["vegas"],
+                combined["vegas"] > combined["net_score"],
+            )
+            score = combined["success"].value_counts(normalize=True).at[True]
+            scores.append(score)
+        df = pd.DataFrame([[model_name, np.mean(scores)]], columns=["name", X_name])
         self.results = pd.concat([self.results, df])
 
-    def k_nearest(self, df: pd.DataFrame, neighbors: int = 3):
+    def k_nearest(self, df: pd.DataFrame, X: List[str], name: str, neighbors: int = 3):
         neigh = KNeighborsClassifier(n_neighbors=neighbors)
-        self.test_model(neigh, df, "KNN")
+        self.test_model(neigh, df, "KNN", X, name)
 
-    def linear_regression(self, df: pd.DataFrame):
+    def linear_regr(self, df: pd.DataFrame, X: List[str], name: str):
         reg = linear_model.LinearRegression()
-        self.test_model(reg, df, "LinReg")
+        self.test_model(reg, df, "LinReg", X, name)
+
+    def decision_tree_regr(self, df: pd.DataFrame, X: List[str], name: str):
+        clf = tree.DecisionTreeRegressor()
+        self.test_model(clf, df, "TreeReg", X, name)
+
+    def vector_class_regr(self, df: pd.DataFrame, X: List[str], name: str):
+        regr = svm.SVR()
+        self.test_model(regr, df, "SVReg", X, name)
 
 
-def main(save: bool = False):
+def main(save: bool = False, runs: int = 100):
     analyze = {"offense": ["pass_yds", "rush_yds"], "defense": [], "kicking": []}
     data = Data(analyze)
-    analyze = Analyze(analyze, data.offense)
+    analyze = Analyze(analyze, data.offense, runs)
     if save:
         data.offense.to_csv("export.csv")
 
