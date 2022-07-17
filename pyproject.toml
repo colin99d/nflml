@@ -8,10 +8,7 @@ authors = ["colin99d <colin99delahunty@gmail.com>"]
 python = ">=3.10,<3.11"
 pandas = "^1.4.3"
 scikit-learn = "^1.1.1"
-torch = "^1.12.0"
-torchvision = "^0.13.0"
 typer = "^0.6.1"
-pytorch-forecasting = "^0.10.2"
 
 [tool.poetry.dev-dependencies]
 
