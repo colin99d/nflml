@@ -1,5 +1,6 @@
 from typing import List, Dict, Any
 from sklearn.neighbors import KNeighborsClassifier
+from sklearn.model_selection import train_test_split
 from sklearn import linear_model
 import pandas as pd
 import numpy as np
@@ -73,6 +74,9 @@ class Data:
             combined[f"net_avg_{item}"] = (
                 combined[f"avg_{item}_home"] - combined[f"avg_{item}_away"]
             )
+        combined["vegas_favorite"] = np.where(
+            combined["Vegas_Favorite"] == combined["home_team"], "HOME", "AWAY"
+        )
         self.offense = combined
 
     def add_rolling(self, df: pd.DataFrame, column: str, rolling: int = 10):
@@ -104,9 +108,34 @@ class Analyze:
 
     def test_model(self, model, df: pd.DataFrame, name: str):
         columns = [f"net_avg_{x}" for x in self.analyze["offense"]]
+
+        # Get overall r2 for model
         model.fit(df[columns], df["net_score"])
         r2 = model.score(df[columns], df["net_score"])
-        df = pd.DataFrame([[name, r2, 0]], columns=["name", "r2", "% correct"])
+
+        # See how model does at vegas
+        x_train, x_test, y_train, y_test = train_test_split(
+            df[columns], df["net_score"], test_size=0.2
+        )
+        model.fit(x_train, y_train)
+        x_test["preds"] = model.predict(x_test)
+        temp = df[["Vegas_Line", "net_score", "vegas_favorite"]]
+        combined = x_test.merge(temp, left_index=True, right_index=True)
+        combined["vegas"] = combined["Vegas_Line"] * np.where(
+            combined["vegas_favorite"] == "HOME", -1, 1
+        )
+        combined["bet"] = np.where(
+            combined["vegas_favorite"] == "HOME",
+            np.where(combined["preds"] > combined["vegas"], "HOME", "AWAY"),
+            np.where(combined["vegas"] > combined["preds"], "HOME", "AWAY"),
+        )
+        combined["success"] = np.where(
+            combined["bet"] == "HOME",
+            combined["net_score"] > combined["vegas"],
+            combined["vegas"] > combined["net_score"],
+        )
+        score = combined["success"].value_counts(normalize=True).at[True]
+        df = pd.DataFrame([[name, r2, score]], columns=["name", "r2", "% correct"])
         self.results = pd.concat([self.results, df])
 
     def k_nearest(self, df: pd.DataFrame, neighbors: int = 3):
