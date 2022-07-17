@@ -96,22 +96,26 @@ class Analyze:
     def __init__(self, analyze: Dict[str, Any], offense: pd.DataFrame):
         self.analyze = analyze
         self.offense = offense
+        self.results = pd.DataFrame(columns=["name", "r2", "% correct"])
         self.k_nearest(self.offense)
         self.linear_regression(self.offense)
+        self.results = self.results.set_index("name")
+        print(self.results)
 
-    def k_nearest(self, df: pd.DataFrame):
-        """Predicts whether a team will win based on past performance"""
-        neigh = KNeighborsClassifier(n_neighbors=3)
+    def test_model(self, model, df: pd.DataFrame, name: str):
         columns = [f"net_avg_{x}" for x in self.analyze["offense"]]
-        neigh.fit(df[columns], df["net_score"])
-        print(neigh.score(df[columns], df["net_score"]))
+        model.fit(df[columns], df["net_score"])
+        r2 = model.score(df[columns], df["net_score"])
+        df = pd.DataFrame([[name, r2, 0]], columns=["name", "r2", "% correct"])
+        self.results = pd.concat([self.results, df])
+
+    def k_nearest(self, df: pd.DataFrame, neighbors: int = 3):
+        neigh = KNeighborsClassifier(n_neighbors=neighbors)
+        self.test_model(neigh, df, "KNN")
 
     def linear_regression(self, df: pd.DataFrame):
-        """Predicts how much the home team will win by"""
         reg = linear_model.LinearRegression()
-        columns = [f"net_avg_{x}" for x in self.analyze["offense"]]
-        reg.fit(df[columns], df["net_score"])
-        print(reg.score(df[columns], df["net_score"]))
+        self.test_model(reg, df, "LinReg")
 
 
 def main(save: bool = False):
