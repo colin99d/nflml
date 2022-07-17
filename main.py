@@ -8,9 +8,9 @@ import typer
 def k_nearest(df: pd.DataFrame):
     """Predicts whether a team will win based on past performance"""
     neigh = KNeighborsClassifier(n_neighbors=3)
-    df["won"] = np.where(df["won_by"] > 0, 1, 0)
-    neigh.fit(df[["avg_pass_yds_y", "avg_rush_yds_y"]], df["won"])
-    print(neigh.score(df[["avg_pass_yds_y", "avg_rush_yds_y"]], df["won"]))
+    # df["won"] = np.where(df["won_by"] > 0, 1, 0)
+    neigh.fit(df[["avg_pass_yds_y", "avg_rush_yds_y"]], df["won_by"])
+    print(neigh.score(df[["avg_pass_yds_y", "avg_rush_yds_y"]], df["won_by"]))
 
 
 def linear_regression(df: pd.DataFrame):
