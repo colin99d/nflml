@@ -102,17 +102,26 @@ class Analyze:
 
     def __init__(self, analyze: Dict[str, Any], offense: pd.DataFrame, runs: int = 100):
         self.analyze = analyze
-        selections = {"base": [f"net_avg_{x}" for x in self.analyze["offense"]]}
+        selections = {
+            "base": [f"net_avg_{x}" for x in self.analyze["offense"]],
+            "decomp": [
+                f"avg_{x}_yds_{y}" for x in ["rush", "pass"] for y in ["home", "away"]
+            ],
+        }
         self.offense = offense
-        self.results = pd.DataFrame(columns=["name"] + list(selections.keys()))
         self.runs = runs
+        self.dict: Dict[str, List[float]] = {
+            k: [] for k in ["KNN", "LinReg", "TreeReg", "SVReg"]
+        }
 
         # Run models
         for key, val in tqdm(selections.items(), position=0):
             for model in tqdm(self.models, position=1):
                 getattr(self, model)(self.offense, val, key)
 
-        self.results = self.results.set_index("name")
+        self.results = pd.DataFrame.from_dict(
+            self.dict, columns=list(selections.keys()), orient="index"
+        )
         print(f"Average percent correct for {self.runs} runs.")
         print(self.results)
 
@@ -144,8 +153,7 @@ class Analyze:
             )
             score = combined["success"].value_counts(normalize=True).at[True]
             scores.append(score)
-        df = pd.DataFrame([[model_name, np.mean(scores)]], columns=["name", X_name])
-        self.results = pd.concat([self.results, df])
+        self.dict[model_name].append(np.mean(scores))
 
     def k_nearest(self, df: pd.DataFrame, X: List[str], name: str, neighbors: int = 3):
         neigh = KNeighborsClassifier(n_neighbors=neighbors)
